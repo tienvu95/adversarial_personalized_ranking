@@ -122,7 +122,7 @@ def _get_train_batch(i):
            np.array(user_neg_batch)[:, None], np.array(item_neg_batch)[:, None]
 
 
-# prediction model
+# prediction model, matrix factorization
 class MF:
     def __init__(self, num_users, num_items, args):
         self.num_items = num_items
@@ -139,19 +139,23 @@ class MF:
 
     def _create_placeholders(self):
         with tf.name_scope("input_data"):
+            # literally hold a place so that we can feed data later during the training
             self.user_input = tf.placeholder(tf.int32, shape=[None, 1], name="user_input")
             self.item_input_pos = tf.placeholder(tf.int32, shape=[None, 1], name="item_input_pos")
             self.item_input_neg = tf.placeholder(tf.int32, shape=[None, 1], name="item_input_neg")
 
     def _create_variables(self):
+        # will add scope as a prefix to all operations
         with tf.name_scope("embedding"):
+            #embeding for user size u x k
             self.embedding_P = tf.Variable(
                 tf.truncated_normal(shape=[self.num_users, self.embedding_size], mean=0.0, stddev=0.01),
                 name='embedding_P', dtype=tf.float32)  # (users, embedding_size)
+            #embeding for user size i x k
             self.embedding_Q = tf.Variable(
                 tf.truncated_normal(shape=[self.num_items, self.embedding_size], mean=0.0, stddev=0.01),
                 name='embedding_Q', dtype=tf.float32)  # (items, embedding_size)
-
+            # embediing size has the same size as perturbation size
             self.delta_P = tf.Variable(tf.zeros(shape=[self.num_users, self.embedding_size]),
                                        name='delta_P', dtype=tf.float32, trainable=False)  # (users, embedding_size)
             self.delta_Q = tf.Variable(tf.zeros(shape=[self.num_items, self.embedding_size]),
@@ -181,7 +185,7 @@ class MF:
 
     def _create_loss(self):
         with tf.name_scope("loss"):
-            # loss for L(Theta)
+            # loss for L(Theta) -- difference between positive item i and negative item j, eqn 1
             self.output, embed_p_pos, embed_q_pos = self._create_inference(self.item_input_pos)
             self.output_neg, embed_p_neg, embed_q_neg = self._create_inference(self.item_input_neg)
             self.result = tf.clip_by_value(self.output - self.output_neg, -80.0, 1e8)
@@ -192,7 +196,7 @@ class MF:
             self.opt_loss = self.loss + self.reg * tf.reduce_mean(tf.square(embed_p_pos) + tf.square(embed_q_pos) + tf.square(embed_q_neg)) # embed_p_pos == embed_q_neg
 
             if self.adver:
-                # loss for L(Theta + adv_Delta)
+                # loss for L(Theta + adv_Delta), eqn 4
                 self.output_adv, embed_p_pos, embed_q_pos = self._create_inference_adv(self.item_input_pos)
                 self.output_neg_adv, embed_p_neg, embed_q_neg = self._create_inference_adv(self.item_input_neg)
                 self.result_adv = tf.clip_by_value(self.output_adv - self.output_neg_adv, -80.0, 1e8)
@@ -218,18 +222,19 @@ class MF:
             elif self.adv == "grad":
                 # return the IndexedSlice Data: [(values, indices, dense_shape)]
                 # grad_var_P: [grad,var], grad_var_Q: [grad, var]
+                # gradient of loss function with respect to embedding of user and item
                 self.grad_P, self.grad_Q = tf.gradients(self.loss, [self.embedding_P, self.embedding_Q])
 
                 # convert the IndexedSlice Data to Dense Tensor
                 self.grad_P_dense = tf.stop_gradient(self.grad_P)
                 self.grad_Q_dense = tf.stop_gradient(self.grad_Q)
 
-                # normalization: new_grad = (grad / |grad|) * eps
+                # normalization: new_grad = (grad / |grad|) * eps, formula 8
                 self.update_P = self.delta_P.assign(tf.nn.l2_normalize(self.grad_P_dense, 1) * self.eps)
                 self.update_Q = self.delta_Q.assign(tf.nn.l2_normalize(self.grad_Q_dense, 1) * self.eps)
 
     def _create_optimizer(self):
-        with tf.name_scope("optimizer"):
+        with tf.name_scope("optimizer"): ## basically what equation 11 trying to do
             self.optimizer = tf.train.AdagradOptimizer(learning_rate=self.learning_rate).minimize(self.opt_loss)
 
     def build_graph(self):
