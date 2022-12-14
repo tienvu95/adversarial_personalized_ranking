@@ -140,22 +140,31 @@ class MF:
     def _create_placeholders(self):
         with tf.name_scope("input_data"):
             # literally hold a place so that we can feed data later during the training
-            self.user_input = tf.placeholder(tf.int32, shape=[None, 1], name="user_input")
-            self.item_input_pos = tf.placeholder(tf.int32, shape=[None, 1], name="item_input_pos")
-            self.item_input_neg = tf.placeholder(tf.int32, shape=[None, 1], name="item_input_neg")
+
+            ## placeholder is deprecated in tf2
+            #self.user_input = tf.placeholder(tf.int32, shape=[None, 1], name="user_input")
+
+
+            self.user_input =  tf.keras.Input(shape=(1,), dtype = tf.int32)
+
+            # self.item_input_pos = tf.placeholder(tf.int32, shape=[None, 1], name="item_input_pos")
+            # self.item_input_neg = tf.placeholder(tf.int32, shape=[None, 1], name="item_input_neg")
+            self.item_input_pos =  tf.keras.Input(shape=(1,), dtype = tf.int32)
+            self.item_input_neg =  tf.keras.Input(shape=(1,), dtype = tf.int32)
 
     def _create_variables(self):
         # will add scope as a prefix to all operations
         with tf.name_scope("embedding"):
             #embeding for user size u x k
             self.embedding_P = tf.Variable(
-                tf.truncated_normal(shape=[self.num_users, self.embedding_size], mean=0.0, stddev=0.01),
+                tf.random.truncated_normal(shape=[self.num_users, self.embedding_size], mean=0.0, stddev=0.01),
                 name='embedding_P', dtype=tf.float32)  # (users, embedding_size)
             #embeding for user size i x k
             self.embedding_Q = tf.Variable(
-                tf.truncated_normal(shape=[self.num_items, self.embedding_size], mean=0.0, stddev=0.01),
+                tf.random.truncated_normal(shape=[self.num_items, self.embedding_size], mean=0.0, stddev=0.01),
                 name='embedding_Q', dtype=tf.float32)  # (items, embedding_size)
             # embediing size has the same size as perturbation size
+
             self.delta_P = tf.Variable(tf.zeros(shape=[self.num_users, self.embedding_size]),
                                        name='delta_P', dtype=tf.float32, trainable=False)  # (users, embedding_size)
             self.delta_Q = tf.Variable(tf.zeros(shape=[self.num_items, self.embedding_size]),
@@ -205,7 +214,7 @@ class MF:
                 self.opt_loss += self.reg_adv * self.loss_adv + \
                                  self.reg * tf.reduce_mean(tf.square(embed_p_pos) + tf.square(embed_q_pos) + tf.square(embed_q_neg))
 
-
+    ## this part should be replaced with hypernet that generate the adversarial noise
     def _create_adversarial(self):
         with tf.name_scope("adversarial"):
             # generate the adversarial weights by random method
@@ -235,7 +244,7 @@ class MF:
 
     def _create_optimizer(self):
         with tf.name_scope("optimizer"): ## basically what equation 11 trying to do
-            self.optimizer = tf.train.AdagradOptimizer(learning_rate=self.learning_rate).minimize(self.opt_loss)
+            self.optimizer = tf.keras.optimizers.Adagrad(learning_rate=self.learning_rate).minimize(self.opt_loss, var_list=[self.embedding_P, self.embedding_Q, self.delta_P, self.delta_Q])
 
     def build_graph(self):
         self._create_placeholders()
@@ -505,6 +514,8 @@ def init_logging(args, time_stamp):
     logging.info(args)
     print (args)
 
+
+## we can off the adversarial training here? not optimize the params delta in adversarial training
 
 if __name__ == '__main__':
 
